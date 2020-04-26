@@ -1,65 +1,86 @@
-use super::IResult;
+use super::{IResult, Span};
 
-fn escape<'a>(value: &'static str, tag: char, i: &'a str) -> IResult<'a, &'a str> {
-    nom::combinator::value(value, nom::character::complete::char(tag))(i)
+use nom::{
+    branch::alt,
+    bytes::complete::{escaped_transform, is_not},
+    character::complete::char as one_char,
+    combinator::value,
+    error::{context, make_error, ErrorKind},
+    sequence::delimited,
+};
+
+fn escape<'a>(val: &'static str, tag: char, i: Span<'a>) -> IResult<'a, &'a str> {
+    value(val, one_char(tag))(i)
 }
 
-fn escape_nl(i: &str) -> IResult<&str> {
+fn escape_nl(i: Span) -> IResult<&str> {
     escape("\n", 'n', i)
 }
 
-fn escape_tab(i: &str) -> IResult<&str> {
+fn escape_tab(i: Span) -> IResult<&str> {
     escape("\t", 't', i)
 }
 
-fn escape_quote(i: &str) -> IResult<&str> {
+fn escape_quote(i: Span) -> IResult<&str> {
     escape("\"", '"', i)
 }
 
-fn escape_backslash(i: &str) -> IResult<&str> {
+fn escape_backslash(i: Span) -> IResult<&str> {
     escape("\\", '\\', i)
 }
 
-fn string_inner(i: &str) -> IResult<String> {
-    nom::bytes::complete::escaped_transform(
-        nom::bytes::complete::is_not("\\\""),
+fn invalid_escape(i: Span) -> IResult<&str> {
+    Err(nom::Err::Error(make_error(i, ErrorKind::OneOf)))
+}
+
+fn string_inner(i: Span) -> IResult<String> {
+    escaped_transform(
+        is_not("\\\""),
         '\\',
-        nom::branch::alt((escape_nl, escape_tab, escape_quote, escape_backslash)),
+        context(
+            "escape",
+            alt((
+                escape_nl,
+                escape_tab,
+                escape_quote,
+                escape_backslash,
+                invalid_escape,
+            )),
+        ),
     )(i)
 }
 
-pub fn string(i: &str) -> IResult<String> {
-    nom::error::context(
-        "string",
-        nom::sequence::delimited(
-            nom::character::complete::char('"'),
-            string_inner,
-            nom::character::complete::char('"'),
-        )
-    )(i)
+pub fn string(i: Span) -> IResult<String> {
+    delimited(one_char('"'), string_inner, one_char('"'))(i)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::assert_ok_t;
 
     #[test]
     fn test_string() {
-        assert_eq!(
-            string("\"Hello, world!\""),
-            Ok(("", "Hello, world!".into()))
+        assert_ok_t(
+            string(Span::new("\"Hello, world!\"")),
+            (Span::new(""), "Hello, world!".into()),
         );
-        assert_eq!(
-            string("\"Hello, world!\", \"Also, other data\""),
-            Ok((", \"Also, other data\"", "Hello, world!".into()))
+        assert_ok_t(
+            string(Span::new("\"Hello, world!\", \"Also, other data\"")),
+            (Span::new(", \"Also, other data\""), "Hello, world!".into()),
         );
-        assert_eq!(
-            string("\"String with \\n multiple \\t escapes \\\" \\\\ :)\""),
-            Ok(("", "String with \n multiple \t escapes \" \\ :)".into()))
+        assert_ok_t(
+            string(Span::new(
+                "\"String with \\n multiple \\t escapes \\\" \\\\ :)\"",
+            )),
+            (
+                Span::new(""),
+                "String with \n multiple \t escapes \" \\ :)".into(),
+            ),
         );
-        assert!(string("Unquoted string").is_err());
-        assert!(string("\"Unterminated string").is_err());
-        assert!(string("\"Badly terminated string\\\"").is_err());
-        assert!(string("\"String with \\bad escape\"").is_err());
+        assert!(string(Span::new("Unquoted string")).is_err());
+        assert!(string(Span::new("\"Unterminated string")).is_err());
+        assert!(string(Span::new("\"Badly terminated string\\\"")).is_err());
+        assert!(string(Span::new("\"String with \\bad escape\"")).is_err());
     }
 }

@@ -3,7 +3,17 @@
 use crate::{list, list::List};
 use crate::{Value, ValueKind};
 
-use super::{IResult, float, ident, integer, string};
+use super::{float, ident, integer, string, Error, IResult, Span};
+
+use nom::{
+    branch::alt,
+    bytes::complete::take,
+    character::complete::{char as one_char, digit1, multispace0, multispace1},
+    combinator::{map, peek, value},
+    error::context,
+    multi::separated_list,
+    sequence::{self, delimited, preceded},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Modifier {
@@ -12,13 +22,9 @@ enum Modifier {
     None,
 }
 
-fn modifier(i: &str) -> IResult<Modifier> {
-    nom::combinator::map(
-        nom::branch::alt((
-            nom::character::complete::char('\''),
-            nom::character::complete::char('!'),
-            nom::combinator::value('\0', nom::bytes::complete::take(0usize)),
-        )),
+fn modifier(i: Span) -> IResult<Modifier> {
+    map(
+        alt((one_char('\''), one_char('!'), value('\0', take(0usize)))),
         |c| match c {
             '\'' => Modifier::Raw,
             '!' => Modifier::Sequential,
@@ -27,18 +33,26 @@ fn modifier(i: &str) -> IResult<Modifier> {
     )(i)
 }
 
-pub fn token<'a>(i: &'a str) -> IResult<Value<'a>> {
-    nom::combinator::map(
-        nom::sequence::tuple((
-            modifier,
-            nom::branch::alt((
-                nom::combinator::map(string, ValueKind::String),
-                nom::combinator::map(ident, ValueKind::Symbol),
-                nom::combinator::map(float, ValueKind::Float),
-                nom::combinator::map(integer, ValueKind::Integer),
-                nom::combinator::map(list, ValueKind::List),
-            )),
-        )),
+fn token_kind<'a>(i: Span<'a>) -> IResult<ValueKind<'a>> {
+    if peek::<_, _, Error<'a>, _>(one_char('"'))(i).is_ok() {
+        context("string", map(string, ValueKind::String))(i)
+    } else if peek::<_, _, Error<'a>, _>(one_char('('))(i).is_ok() {
+        context("list", map(list, ValueKind::List))(i)
+    } else if peek::<_, _, Error<'a>, _>(digit1)(i).is_ok() {
+        context("number",
+            alt((
+                map(float, ValueKind::Float),
+                map(integer, ValueKind::Integer),
+            ))
+        )(i)
+    } else {
+        context("ident", map(ident, |s| ValueKind::Symbol(s.fragment())))(i)
+    }
+}
+
+pub fn token<'a>(i: Span<'a>) -> IResult<Value<'a>> {
+    map(
+        sequence::tuple((modifier, token_kind)),
         |(modifier, kind)| Value {
             kind,
             raw: (modifier == Modifier::Raw),
@@ -47,27 +61,31 @@ pub fn token<'a>(i: &'a str) -> IResult<Value<'a>> {
     )(i)
 }
 
-pub fn list<'a>(i: &'a str) -> IResult<List<Value<'a>>> {
-    nom::error::context(
-        "list",
-        nom::sequence::delimited(
-            nom::character::complete::char('('),
-            nom::combinator::map(
-                nom::multi::separated_list(
-                    nom::character::complete::space1,
-                    token,
-                ),
-                List::from_double_ended_iter,
-            ),
-            nom::character::complete::char(')'),
-        )
-    )(i)
+pub fn list<'a>(i: Span<'a>) -> IResult<List<Value<'a>>> {
+    let mut result = Vec::new();
+    let mut first_token = true;
+    let (mut i, _) = one_char('(')(i)?;
+    loop {
+        if let Ok((i, _)) = preceded(multispace0, one_char::<_, Error>(')'))(i) {
+            break Ok((i, List::from_double_ended_iter(result)));
+        }
+        if !first_token {
+            i = multispace1(i)?.0;
+        } else {
+            i = multispace0(i)?.0;
+            first_token = false;
+        }
+        let (new_i, token) = token(i)?;
+        i = new_i;
+        result.push(token);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
+        test_helpers::assert_ok_t,
         Value,
         ValueKind::{self, *},
     };
@@ -98,90 +116,102 @@ mod tests {
 
     #[test]
     fn test_token() {
-        assert_eq!(token("1").unwrap(), ("", simple_value(Integer(1))));
-        assert_eq!(token("1.2").unwrap(), ("", simple_value(Float(1.2))));
-        assert_eq!(
-            token("\"3\"").unwrap(),
-            ("", simple_value(String("3".into())))
+        assert_ok_t(
+            token(Span::new("1")),
+            (Span::new(""), simple_value(Integer(1))),
         );
-        assert_eq!(token("four").unwrap(), ("", simple_value(Symbol("four"))));
-        assert_eq!(token("'four").unwrap(), ("", raw_value(Symbol("four"))));
-        assert_eq!(
-            token("'(1 2 3)").unwrap(),
+        assert_ok_t(
+            token(Span::new("1.2")),
+            (Span::new(""), simple_value(Float(1.2))),
+        );
+        assert_ok_t(
+            token(Span::new("\"3\"")),
+            (Span::new(""), simple_value(String("3".into()))),
+        );
+        assert_ok_t(
+            token(Span::new("four")),
+            (Span::new(""), simple_value(Symbol("four"))),
+        );
+        assert_ok_t(
+            token(Span::new("'four")),
+            (Span::new(""), raw_value(Symbol("four"))),
+        );
+        assert_ok_t(
+            token(Span::new("'(1 2 3)")),
             (
-                "",
+                Span::new(""),
                 raw_value(List(list![
                     simple_value(Integer(1)),
                     simple_value(Integer(2)),
                     simple_value(Integer(3)),
-                ]))
-            )
+                ])),
+            ),
         );
-        assert_eq!(
-            token("!(1 2 3)").unwrap(),
+        assert_ok_t(
+            token(Span::new("!(1 2 3)")),
             (
-                "",
+                Span::new(""),
                 sequential_value(List(list![
                     simple_value(Integer(1)),
                     simple_value(Integer(2)),
                     simple_value(Integer(3)),
-                ]))
-            )
+                ])),
+            ),
         );
     }
 
     #[test]
     fn test_simple_list() {
-        assert_eq!(
-            list("(1 2 3)").unwrap(),
+        assert_ok_t(
+            list(Span::new("(1 2 3)")),
             (
-                "",
+                Span::new(""),
                 list![
                     simple_value(Integer(1)),
                     simple_value(Integer(2)),
                     simple_value(Integer(3)),
-                ]
-            )
+                ],
+            ),
         );
     }
 
     #[test]
     fn test_heterogenous_list() {
-        assert_eq!(
-            list("(1 1.2 \"3\" four)").unwrap(),
+        assert_ok_t(
+            list(Span::new("(1 1.2 \"3\" four)")),
             (
-                "",
+                Span::new(""),
                 list![
                     simple_value(Integer(1)),
                     simple_value(Float(1.2)),
                     simple_value(String("3".into())),
                     simple_value(Symbol("four"))
-                ]
-            )
+                ],
+            ),
         );
     }
 
     #[test]
     fn test_after_list() {
-        assert_eq!(
-            list("(1 2 3)4").unwrap(),
+        assert_ok_t(
+            list(Span::new("(1 2 3)4")),
             (
-                "4",
+                Span::new("4"),
                 list![
                     simple_value(Integer(1)),
                     simple_value(Integer(2)),
                     simple_value(Integer(3)),
-                ]
-            )
+                ],
+            ),
         );
     }
 
     #[test]
     fn test_nested_lists() {
-        assert_eq!(
-            list("(+ !(/ 2 3) (eval '(* 2 4)) 6)").unwrap(),
+        assert_ok_t(
+            list(Span::new("(+ !(/ 2 3) (eval '(* 2 4)) 6)")),
             (
-                "",
+                Span::new(""),
                 list![
                     simple_value(Symbol("+")),
                     sequential_value(List(list![
@@ -198,6 +228,32 @@ mod tests {
                         ]))
                     ])),
                     simple_value(Integer(6))
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn test_space_before_closing_paren() {
+        assert_ok_t(
+            list(Span::new("(a )")),
+            (
+                Span::new(""),
+                list![
+                    simple_value(Symbol("a"))
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn test_space_before_first_token() {
+        assert_ok_t(
+            list(Span::new("( a)")),
+            (
+                Span::new(""),
+                list![
+                    simple_value(Symbol("a"))
                 ]
             )
         );

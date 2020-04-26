@@ -1,8 +1,11 @@
 pub mod list;
 pub mod parser;
 
-use std::fmt::{self, Write};
+#[cfg(test)]
+pub mod test_helpers;
+
 use list::List;
+use std::fmt::{self, Write};
 
 #[derive(Debug, PartialEq)]
 pub enum ValueKind<'a> {
@@ -41,5 +44,17 @@ impl fmt::Display for Value<'_> {
             fmt.write_char('!')?;
         }
         write!(fmt, "{}", self.kind)
+    }
+}
+
+impl ValueKind<'_> {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Symbol(_) => "symbol",
+            Self::Integer(_) => "integer",
+            Self::Float(_) => "float",
+            Self::String(_) => "string",
+            Self::List(_) => "list"
+        }
     }
 }

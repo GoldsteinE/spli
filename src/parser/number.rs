@@ -1,100 +1,79 @@
+use super::{IResult, Span};
 use std::str::FromStr;
-use super::IResult;
 
-fn decimal_integer(i: &str) -> IResult<i64> {
-    nom::combinator::map_res(
-        nom::combinator::recognize(nom::sequence::tuple((
-            nom::character::complete::one_of("123456789"),
-            nom::character::complete::digit0,
-        ))),
-        i64::from_str,
+use nom::{
+    branch::alt,
+    bytes::complete::tag,
+    character::complete::{char as one_char, digit0, digit1, hex_digit1, oct_digit1, one_of},
+    combinator::{map_res, recognize},
+    multi::many1,
+    sequence::{self, preceded},
+};
+
+fn decimal_integer(i: Span) -> IResult<i64> {
+    map_res(
+        recognize(sequence::tuple((one_of("123456789"), digit0))),
+        |n: Span| i64::from_str(n.fragment()),
     )(i)
 }
 
-fn hex_integer(i: &str) -> IResult<i64> {
-    nom::combinator::map_res(
-        nom::sequence::preceded(
-            nom::bytes::complete::tag("0x"),
-            nom::character::complete::hex_digit1,
-        ),
-        |n| i64::from_str_radix(n, 16),
+fn hex_integer(i: Span) -> IResult<i64> {
+    map_res(preceded(tag("0x"), hex_digit1), |n: Span| {
+        i64::from_str_radix(n.fragment(), 16)
+    })(i)
+}
+
+fn oct_integer(i: Span) -> IResult<i64> {
+    map_res(preceded(tag("0o"), oct_digit1), |n: Span| {
+        i64::from_str_radix(n.fragment(), 8)
+    })(i)
+}
+
+fn bin_integer(i: Span) -> IResult<i64> {
+    map_res(
+        preceded(tag("0b"), recognize(many1(one_of("01")))),
+        |n: Span| i64::from_str_radix(n.fragment(), 2),
     )(i)
 }
 
-fn oct_integer(i: &str) -> IResult<i64> {
-    nom::combinator::map_res(
-        nom::sequence::preceded(
-            nom::bytes::complete::tag("0o"),
-            nom::character::complete::oct_digit1,
-        ),
-        |n| i64::from_str_radix(n, 8),
-    )(i)
+pub fn integer(i: Span) -> IResult<i64> {
+    alt((decimal_integer, hex_integer, bin_integer, oct_integer))(i)
 }
 
-fn bin_integer(i: &str) -> IResult<i64> {
-    nom::combinator::map_res(
-        nom::sequence::preceded(
-            nom::bytes::complete::tag("0b"),
-            nom::combinator::recognize(nom::multi::many1(nom::character::complete::one_of("01"))),
-        ),
-        |n| i64::from_str_radix(n, 2),
-    )(i)
-}
-
-pub fn integer(i: &str) -> IResult<i64> {
-    nom::error::context(
-        "integer",
-        nom::branch::alt((decimal_integer, hex_integer, bin_integer, oct_integer))
-    )(i)
-}
-
-pub fn float(i: &str) -> IResult<f64> {
-    nom::error::context(
-        "float",
-        nom::combinator::map_res(
-            nom::combinator::recognize(nom::branch::alt((
-                nom::sequence::tuple((
-                    nom::character::complete::digit0,
-                    nom::character::complete::char('.'),
-                    nom::character::complete::digit1,
-                )),
-                nom::sequence::tuple((
-                    nom::character::complete::digit1,
-                    nom::character::complete::char('.'),
-                    nom::character::complete::digit0,
-                )),
-            ))),
-            f64::from_str,
-        )
+pub fn float(i: Span) -> IResult<f64> {
+    map_res(
+        recognize(sequence::tuple((digit1, one_char('.'), digit0))),
+        |n: Span| f64::from_str(n.fragment()),
     )(i)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::assert_ok_t;
 
     #[test]
     fn test_integer() {
-        assert_eq!(integer("123"), Ok(("", 123)));
-        assert_eq!(integer("0x123"), Ok(("", 0x123)));
-        assert_eq!(integer("0o123"), Ok(("", 0o123)));
-        assert_eq!(integer("0b1010"), Ok(("", 10)));
-        assert_eq!(integer("0b123"), Ok(("23", 1)));
-        assert!(integer("0123").is_err());
-        assert!(integer("0q123").is_err());
+        assert_ok_t(integer(Span::new("123")), (Span::new(""), 123));
+        assert_ok_t(integer(Span::new("0x123")), (Span::new(""), 0x123));
+        assert_ok_t(integer(Span::new("0o123")), (Span::new(""), 0o123));
+        assert_ok_t(integer(Span::new("0b1010")), (Span::new(""), 10));
+        assert_ok_t(integer(Span::new("0b123")), (Span::new("23"), 1));
+        assert!(integer(Span::new("0123")).is_err());
+        assert!(integer(Span::new("0q123")).is_err());
     }
 
     #[test]
     fn test_float() {
-        assert_eq!(float("123.0"), Ok(("", 123.0)));
-        assert_eq!(float(".123"), Ok(("", 0.123)));
-        assert_eq!(float("5.6"), Ok(("", 5.6)));
-        assert_eq!(float("05.6"), Ok(("", 5.6)));
-        assert_eq!(float("5.6."), Ok((".", 5.6)));
-        assert_eq!(float("5."), Ok(("", 5.0)));
-        assert!(float(".").is_err());
-        assert!(float("0x5.6").is_err());
-        assert!(float("0o5.6").is_err());
-        assert!(float("0b0.1").is_err());
+        assert_ok_t(float(Span::new("123.0")), (Span::new(""), 123.0));
+        assert_ok_t(float(Span::new("5.6")), (Span::new(""), 5.6));
+        assert_ok_t(float(Span::new("05.6")), (Span::new(""), 5.6));
+        assert_ok_t(float(Span::new("5.6.")), (Span::new("."), 5.6));
+        assert_ok_t(float(Span::new("5.")), (Span::new(""), 5.0));
+        assert!(float(Span::new(".")).is_err());
+        assert!(float(Span::new(".123")).is_err());
+        assert!(float(Span::new("0x5.6")).is_err());
+        assert!(float(Span::new("0o5.6")).is_err());
+        assert!(float(Span::new("0b0.1")).is_err());
     }
 }
