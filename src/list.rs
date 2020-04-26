@@ -1,22 +1,13 @@
 use replace_with::replace_with_or_abort_and_return;
 use std::fmt::{self, Write};
-use std::ops::Deref;
 use std::sync::Arc;
 
 pub type Link<T> = Option<Arc<ListNode<T>>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListNode<T> {
-    pub val: T,
+    pub val: Arc<T>,
     pub next: Link<T>,
-}
-
-impl<T> Deref for ListNode<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        &self.val
-    }
 }
 
 #[derive(Debug)]
@@ -40,15 +31,15 @@ impl<T> List<T> {
     pub fn cons(&self, val: T) -> Self {
         Self {
             head: Some(Arc::new(ListNode {
-                val,
+                val: Arc::new(val),
                 next: self.head.clone(),
             })),
             length: self.length + 1,
         }
     }
 
-    pub fn head(&self) -> Option<&T> {
-        self.head.as_ref().map(|node| &node.val)
+    pub fn head(&self) -> Option<Arc<T>> {
+        self.head.as_ref().map(|node| node.val.clone())
     }
 
     pub fn tail(&self) -> Option<Self> {
@@ -63,6 +54,10 @@ impl<T> List<T> {
         replace_with_or_abort_and_return(&mut self.head, move |head| {
             (head.clone(), head.map(|node| node.next.clone()).flatten())
         })
+    }
+
+    pub fn pop(&mut self) -> Option<Arc<T>> {
+        self.pop_node().map(|node| node.val.clone())
     }
 
     pub fn reverse_from_iter<I>(iter: I) -> Self
@@ -84,7 +79,7 @@ impl<T> List<T> {
         Self::reverse_from_iter(iter.into_iter().rev())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Arc<ListNode<T>>> {
+    pub fn iter(&self) -> impl Iterator<Item = Arc<T>> {
         self.clone().into_iter()
     }
 }
@@ -113,7 +108,6 @@ impl<T> Drop for List<T> {
 }
 
 impl<T> Clone for List<T> {
-    #[inline]
     fn clone(&self) -> Self {
         Self {
             head: self.head.clone(),
@@ -133,10 +127,10 @@ impl<T: Eq> Eq for List<T> {}
 pub struct IntoIter<T>(List<T>);
 
 impl<T> Iterator for IntoIter<T> {
-    type Item = Arc<ListNode<T>>;
+    type Item = Arc<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.pop_node()
+        self.0.pop_node().map(|node| node.val.clone())
     }
 }
 
@@ -160,9 +154,9 @@ impl<T: fmt::Display> fmt::Display for List<T> {
                 first_item = false;
             }
             if fmt.alternate() {
-                write!(fmt, "{:#}", **item)?;
+                write!(fmt, "{:#}", *item)?;
             } else {
-                write!(fmt, "{}", **item)?;
+                write!(fmt, "{}", *item)?;
             }
         }
         fmt.write_char(')')
@@ -219,7 +213,7 @@ mod test {
 
     #[test]
     fn test_head() {
-        assert_eq!(make_123().head(), Some(&1));
+        assert_eq!(make_123().head(), Some(Arc::new(1)));
     }
 
     #[test]
@@ -242,7 +236,7 @@ mod test {
         let mut list = make_123();
         for num in 1..=3 {
             let node = list.pop_node().expect("too few items");
-            assert_eq!(node.val, num);
+            assert_eq!(node.val, Arc::new(num));
         }
         assert_eq!(list, List::new());
         assert_eq!(list.pop_node(), None);
@@ -283,10 +277,10 @@ mod test {
         assert_ne!(list![1, 2, 3, 5], list![1, 2, 3, 4]);
     }
 
-    fn test_123_iter(mut iter: impl Iterator<Item = Arc<ListNode<i32>>>) {
-        assert_eq!(**iter.next().unwrap(), 1);
-        assert_eq!(**iter.next().unwrap(), 2);
-        assert_eq!(**iter.next().unwrap(), 3);
+    fn test_123_iter(mut iter: impl Iterator<Item = Arc<i32>>) {
+        assert_eq!(*iter.next().unwrap(), 1);
+        assert_eq!(*iter.next().unwrap(), 2);
+        assert_eq!(*iter.next().unwrap(), 3);
         assert_eq!(iter.next(), None);
 
         // Trying to use normally
