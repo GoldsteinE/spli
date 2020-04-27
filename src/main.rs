@@ -1,6 +1,6 @@
-use spli::parser::{program, token, Error, Span, determine_error};
-use std::io::{self, BufRead, Read, Write};
 use show_my_errors::{AnnotationList, Stylesheet};
+use spli::parser::{determine_error, program, token, Error, Span};
+use std::io::{self, BufRead, Read, Write};
 
 fn show_error(filename: &str, content: &str, err: &Error) -> io::Result<()> {
     let annotation = determine_error(content, err).unwrap();

@@ -1,17 +1,17 @@
 use crate::list::List;
 use crate::{Value, ValueKind};
 
+mod error_handling;
 mod ident;
 mod list;
 mod number;
 mod string;
-mod error_handling;
 
+pub use error_handling::determine_error;
 pub use ident::ident;
 pub use list::{list, token};
 pub use number::{float, integer};
 pub use string::string;
-pub use error_handling::determine_error;
 
 use nom::character::complete::{multispace0, multispace1};
 

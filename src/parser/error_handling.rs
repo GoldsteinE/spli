@@ -1,4 +1,4 @@
-use super::{Span, Error as ParsingError};
+use super::{Error as ParsingError, Span};
 use nom::error::ErrorKind;
 use nom_greedyerror::GreedyErrorKind;
 use show_my_errors::{Annotation, Result};
@@ -14,7 +14,11 @@ fn unknown_error(err: &ParsingError) -> Result<Annotation> {
 }
 
 fn whitespace_error(offset: usize) -> Result<Annotation> {
-    Annotation::error(offset..offset + 1, "expected whitespace after token", "here")
+    Annotation::error(
+        offset..offset + 1,
+        "expected whitespace after token",
+        "here",
+    )
 }
 
 fn escape_context_error(span: &Span) -> Result<Annotation> {
@@ -23,13 +27,17 @@ fn escape_context_error(span: &Span) -> Result<Annotation> {
 }
 
 fn unclosed_list_error(span: &Span, err: &ParsingError) -> Result<Annotation> {
-    let first_list = err.errors.iter().filter_map(|(span, kind)| {
-        if let GreedyErrorKind::Context("list") = kind {
-            Some(span)
-        } else {
-            None
-        }
-    }).next();
+    let first_list = err
+        .errors
+        .iter()
+        .filter_map(|(span, kind)| {
+            if let GreedyErrorKind::Context("list") = kind {
+                Some(span)
+            } else {
+                None
+            }
+        })
+        .next();
     if let Some(list_span) = first_list {
         let offset = list_span.location_offset();
         Annotation::error(offset..offset + 1, "unclosed list", "started here")
@@ -40,16 +48,28 @@ fn unclosed_list_error(span: &Span, err: &ParsingError) -> Result<Annotation> {
 }
 
 fn invalid_ident_error(span: &Span) -> Result<Annotation> {
-    let ident = span.fragment().split_ascii_whitespace().next().unwrap_or("");
+    let ident = span
+        .fragment()
+        .split_ascii_whitespace()
+        .next()
+        .unwrap_or("");
     let offset = span.location_offset();
-    Annotation::error(offset..offset + ident.chars().count(), "invalid identifier", None)
+    Annotation::error(
+        offset..offset + ident.chars().count(),
+        "invalid identifier",
+        None,
+    )
 }
 
 fn number_error(span: &Span) -> Result<Annotation> {
     let fragment = span.fragment();
     let number = fragment.split_ascii_whitespace().next().unwrap_or("");
     let offset = span.location_offset();
-    Annotation::error(offset..offset + number.chars().count(), "invalid number", None)
+    Annotation::error(
+        offset..offset + number.chars().count(),
+        "invalid number",
+        None,
+    )
 }
 
 fn string_error(span: &Span, err: &ParsingError) -> Result<Annotation> {
@@ -57,9 +77,9 @@ fn string_error(span: &Span, err: &ParsingError) -> Result<Annotation> {
         Some((_, GreedyErrorKind::Char('"'))) => {
             let offset = span.location_offset();
             Annotation::error(offset..offset + 1, "unclosed string", "started here")
-        },
+        }
         None => unreachable!(),
-        _ => unknown_error(err)
+        _ => unknown_error(err),
     }
 }
 
@@ -71,20 +91,24 @@ fn list_error(source: &str, span: &Span, err: &ParsingError) -> Result<Annotatio
             } else {
                 whitespace_error(first_span.location_offset())
             }
-        },
+        }
         None => unreachable!(),
-        _ => unknown_error(err)
+        _ => unknown_error(err),
     }
 }
 
 pub fn determine_error(source: &str, err: &ParsingError) -> Result<Annotation> {
-    let context = err.errors.iter().filter_map(|(span, kind)| {
-        if let GreedyErrorKind::Context(context) = kind {
-            Some((context, span))
-        } else {
-            None
-        }
-    }).next();
+    let context = err
+        .errors
+        .iter()
+        .filter_map(|(span, kind)| {
+            if let GreedyErrorKind::Context(context) = kind {
+                Some((context, span))
+            } else {
+                None
+            }
+        })
+        .next();
 
     match context {
         Some((&"escape", span)) => escape_context_error(span),
@@ -94,7 +118,7 @@ pub fn determine_error(source: &str, err: &ParsingError) -> Result<Annotation> {
             } else {
                 invalid_ident_error(span)
             }
-        },
+        }
         Some((&"number", span)) => number_error(span),
         Some((&"string", span)) => string_error(span, err),
         Some((&"list", span)) => list_error(source, span, err),
@@ -105,6 +129,6 @@ pub fn determine_error(source: &str, err: &ParsingError) -> Result<Annotation> {
                 unknown_error(err)
             }
         }
-        _ => unknown_error(err)
+        _ => unknown_error(err),
     }
 }

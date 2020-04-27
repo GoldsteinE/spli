@@ -39,11 +39,12 @@ fn token_kind<'a>(i: Span<'a>) -> IResult<ValueKind<'a>> {
     } else if peek::<_, _, Error<'a>, _>(one_char('('))(i).is_ok() {
         context("list", map(list, ValueKind::List))(i)
     } else if peek::<_, _, Error<'a>, _>(digit1)(i).is_ok() {
-        context("number",
+        context(
+            "number",
             alt((
                 map(float, ValueKind::Float),
                 map(integer, ValueKind::Integer),
-            ))
+            )),
         )(i)
     } else {
         context("ident", map(ident, |s| ValueKind::Symbol(s.fragment())))(i)
@@ -85,34 +86,10 @@ pub fn list<'a>(i: Span<'a>) -> IResult<List<Value<'a>>> {
 mod tests {
     use super::*;
     use crate::{
-        test_helpers::assert_ok_t,
+        test_helpers::{assert_ok_t, raw_value, sequential_value, simple_value},
         Value,
         ValueKind::{self, *},
     };
-
-    fn simple_value(kind: ValueKind) -> Value {
-        Value {
-            raw: false,
-            sequential: false,
-            kind,
-        }
-    }
-
-    fn raw_value(kind: ValueKind) -> Value {
-        Value {
-            raw: true,
-            sequential: false,
-            kind,
-        }
-    }
-
-    fn sequential_value(kind: ValueKind) -> Value {
-        Value {
-            raw: false,
-            sequential: true,
-            kind,
-        }
-    }
 
     #[test]
     fn test_token() {
@@ -237,12 +214,7 @@ mod tests {
     fn test_space_before_closing_paren() {
         assert_ok_t(
             list(Span::new("(a )")),
-            (
-                Span::new(""),
-                list![
-                    simple_value(Symbol("a"))
-                ]
-            )
+            (Span::new(""), list![simple_value(Symbol("a"))]),
         );
     }
 
@@ -250,12 +222,7 @@ mod tests {
     fn test_space_before_first_token() {
         assert_ok_t(
             list(Span::new("( a)")),
-            (
-                Span::new(""),
-                list![
-                    simple_value(Symbol("a"))
-                ]
-            )
+            (Span::new(""), list![simple_value(Symbol("a"))]),
         );
     }
 }

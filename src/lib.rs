@@ -1,5 +1,9 @@
+pub mod executor;
 pub mod list;
 pub mod parser;
+
+mod function;
+pub use function::Function;
 
 #[cfg(test)]
 pub mod test_helpers;
@@ -7,16 +11,17 @@ pub mod test_helpers;
 use list::List;
 use std::fmt::{self, Write};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValueKind<'a> {
     Symbol(&'a str),
     Integer(i64),
     Float(f64),
     String(String),
     List(List<Value<'a>>),
+    Function(Function<'a>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Value<'a> {
     pub raw: bool,
     pub sequential: bool,
@@ -31,6 +36,7 @@ impl fmt::Display for ValueKind<'_> {
             Self::Float(x) => write!(fmt, "{}", x),
             Self::String(s) => write!(fmt, "{:?}", s),
             Self::List(xs) => write!(fmt, "{}", xs),
+            Self::Function(func) => write!(fmt, "{:?}", func),
         }
     }
 }
@@ -54,7 +60,8 @@ impl ValueKind<'_> {
             Self::Integer(_) => "integer",
             Self::Float(_) => "float",
             Self::String(_) => "string",
-            Self::List(_) => "list"
+            Self::List(_) => "list",
+            Self::Function(_) => "function",
         }
     }
 }
