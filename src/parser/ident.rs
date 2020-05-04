@@ -6,7 +6,7 @@ use nom::{
     sequence,
 };
 
-const VALID_IDENT_PUNCT: &'static str = "+-*/.:^%&$#@";
+const VALID_IDENT_PUNCT: &'static str = "+-*/.:^%&$#@_=<>";
 
 fn is_valid_ident_start(c: char) -> bool {
     c.is_ascii_alphabetic() || VALID_IDENT_PUNCT.contains(c)

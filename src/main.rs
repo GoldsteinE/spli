@@ -1,6 +1,15 @@
 use show_my_errors::{AnnotationList, Stylesheet};
-use spli::parser::{determine_error, program, token, Error, Span};
-use std::io::{self, BufRead, Read, Write};
+use spli::{
+    executor::Context,
+    parser::{determine_error, program, token, Error, Span},
+    ValueKind,
+};
+use std::{
+    io::{self, Read},
+    sync::Arc,
+};
+use rustyline::error::ReadlineError;
+use typed_arena::Arena;
 
 fn show_error(filename: &str, content: &str, err: &Error) -> io::Result<()> {
     let annotation = determine_error(content, err).unwrap();
@@ -10,17 +19,47 @@ fn show_error(filename: &str, content: &str, err: &Error) -> io::Result<()> {
 }
 
 fn repl() -> io::Result<()> {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
-    stdout.write(b"spli parser> ")?;
-    stdout.flush()?;
-    for line in stdin.lock().lines() {
-        let line = line?;
+    let lines = Arena::new();
+    let ctx = Context::new();
+    ctx.add_prelude();
+    let mut rl = rustyline::Editor::<()>::new();
+    loop {
+        let line = rl.readline("spli> ");
+        let line = match line {
+            Ok(line) => {
+                lines.alloc(line)
+            },
+            Err(ReadlineError::Io(err)) => break Err(err),
+            Err(ReadlineError::Eof) => break Ok(()),
+            Err(ReadlineError::Interrupted) => continue,
+            #[cfg(unix)]
+            Err(ReadlineError::Utf8Error) => {
+                eprintln!("Had problems decoding your input, probably something with Unicode");
+                continue
+            },
+            #[cfg(unix)]
+            Err(ReadlineError::Errno(err)) => {
+                eprintln!("Error while reading line: {}", err);
+                continue
+            },
+            #[cfg(windows)]
+            Err(ReadlineError::Decode(err)) => {
+                eprintln!("Had problems decoding your input, probably something with Unicode");
+                continue
+            },
+            _ => continue
+        };
+        rl.add_history_entry(line.clone());
+
         if line.len() != 0 {
-            match token(Span::new(&line)) {
+            match token(Span::new(line)) {
                 Ok((rest, parsed)) => {
                     if rest.fragment().len() == 0 {
-                        println!("{} :: {}", parsed, parsed.kind.type_name())
+                        let result = ctx.evaluate(Arc::new(parsed));
+                        println!("{} :: {}", result, result.kind.type_name());
+                        if let ValueKind::Exception(exc) = &result.kind {
+                            println!("{:#?}", exc);
+                        }
                     } else {
                         println!("Parsed: {}", parsed);
                         println!("Rest: {}", rest);
@@ -32,10 +71,7 @@ fn repl() -> io::Result<()> {
                 Err(nom::Err::Incomplete(_)) => unreachable!(),
             }
         }
-        stdout.write(b"spli parser> ")?;
-        stdout.flush()?;
     }
-    Ok(())
 }
 
 fn main() -> io::Result<()> {

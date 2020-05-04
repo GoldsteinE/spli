@@ -12,7 +12,10 @@ use nom::{
 
 fn decimal_integer(i: Span) -> IResult<i64> {
     map_res(
-        recognize(sequence::tuple((one_of("123456789"), digit0))),
+        alt((
+            recognize(sequence::tuple((one_of("123456789"), digit0))),
+            recognize(one_char('0')),
+        )),
         |n: Span| i64::from_str(n.fragment()),
     )(i)
 }
@@ -37,7 +40,7 @@ fn bin_integer(i: Span) -> IResult<i64> {
 }
 
 pub fn integer(i: Span) -> IResult<i64> {
-    alt((decimal_integer, hex_integer, bin_integer, oct_integer))(i)
+    alt((hex_integer, bin_integer, oct_integer, decimal_integer))(i)
 }
 
 pub fn float(i: Span) -> IResult<f64> {
@@ -54,13 +57,14 @@ mod tests {
 
     #[test]
     fn test_integer() {
+        assert_ok_t(integer(Span::new("0")), (Span::new(""), 0));
         assert_ok_t(integer(Span::new("123")), (Span::new(""), 123));
         assert_ok_t(integer(Span::new("0x123")), (Span::new(""), 0x123));
         assert_ok_t(integer(Span::new("0o123")), (Span::new(""), 0o123));
         assert_ok_t(integer(Span::new("0b1010")), (Span::new(""), 10));
         assert_ok_t(integer(Span::new("0b123")), (Span::new("23"), 1));
-        assert!(integer(Span::new("0123")).is_err());
-        assert!(integer(Span::new("0q123")).is_err());
+        assert_ok_t(integer(Span::new("0123")), (Span::new("123"), 0));
+        assert_ok_t(integer(Span::new("0q123")), (Span::new("q123"), 0));
     }
 
     #[test]

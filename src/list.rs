@@ -1,5 +1,6 @@
 use replace_with::replace_with_or_abort_and_return;
 use std::fmt::{self, Write};
+use std::iter::FromIterator;
 use std::sync::Arc;
 
 pub type Link<T> = Option<Arc<ListNode<T>>>;
@@ -29,9 +30,13 @@ impl<T> List<T> {
     }
 
     pub fn cons(&self, val: T) -> Self {
+        self.cons_arc(Arc::new(val))
+    }
+
+    pub fn cons_arc(&self, val: Arc<T>) -> Self {
         Self {
             head: Some(Arc::new(ListNode {
-                val: Arc::new(val),
+                val,
                 next: self.head.clone(),
             })),
             length: self.length + 1,
@@ -46,6 +51,26 @@ impl<T> List<T> {
         self.head.as_ref().map(|node| List {
             head: node.next.clone(),
             length: self.length - 1,
+        })
+    }
+
+    pub fn last(&self) -> Option<Arc<T>> {
+        let mut res = None;
+        for item in self.iter() {
+            res = Some(item);
+        }
+        res
+    }
+
+    pub fn head_tail(&self) -> Option<(Arc<T>, Self)> {
+        self.head.as_ref().map(|node| {
+            (
+                node.val.clone(),
+                List {
+                    head: node.next.clone(),
+                    length: self.length - 1,
+                },
+            )
         })
     }
 
@@ -79,7 +104,7 @@ impl<T> List<T> {
         Self::reverse_from_iter(iter.into_iter().rev())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Arc<T>> {
+    pub fn iter(&self) -> IntoIter<T> {
         self.clone().into_iter()
     }
 }
@@ -134,12 +159,56 @@ impl<T> Iterator for IntoIter<T> {
     }
 }
 
+impl<T> ExactSizeIterator for IntoIter<T> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
 impl<T> IntoIterator for List<T> {
     type IntoIter = IntoIter<T>;
     type Item = <Self::IntoIter as Iterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIter(self)
+    }
+}
+
+impl<T: std::fmt::Debug> FromIterator<T> for List<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        iter.into_iter().map(Arc::new).collect()
+    }
+}
+
+impl<T: std::fmt::Debug> FromIterator<Arc<T>> for List<T> {
+    fn from_iter<I: IntoIterator<Item = Arc<T>>>(iter: I) -> Self {
+        let mut iter = iter.into_iter();
+        let first_elem = if let Some(el) = iter.next() {
+            el
+        } else {
+            return Self::new();
+        };
+
+        let mut length: usize = 1;
+        let mut start = ListNode {
+            val: first_elem,
+            next: None,
+        };
+        let mut curr = &mut start;
+
+        for item in iter {
+            length += 1;
+            curr.next = Some(Arc::new(ListNode {
+                val: item,
+                next: None,
+            }));
+            curr = Arc::get_mut(curr.next.as_mut().unwrap()).unwrap();
+        }
+
+        Self {
+            length,
+            head: Some(Arc::new(start)),
+        }
     }
 }
 
@@ -198,6 +267,17 @@ mod test {
 
     fn make_123() -> List<i32> {
         List::new().cons(3).cons(2).cons(1)
+    }
+
+    #[test]
+    fn test_cons_arc() {
+        assert_eq!(
+            List::new()
+                .cons_arc(Arc::new(3))
+                .cons_arc(Arc::new(2))
+                .cons_arc(Arc::new(1)),
+            make_123()
+        )
     }
 
     #[test]
@@ -326,5 +406,13 @@ mod test {
         second_list = second_list.cons(5);
         assert_eq!(first_list, list![4, 1, 2, 3]);
         assert_eq!(second_list, list![5, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_collect() {
+        assert_eq!(
+            vec![1, 2, 3].into_iter().collect::<List<_>>(),
+            list![1, 2, 3]
+        );
     }
 }

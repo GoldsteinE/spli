@@ -1,4 +1,6 @@
-use super::{list::List, Value};
+pub mod builtins;
+
+use super::{executor::Context, list::List, Value};
 use std::{
     borrow::Cow,
     fmt::{self, Debug},
@@ -7,7 +9,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Function<'a> {
-    pub call: Arc<dyn Fn(List<Value<'a>>) -> Value<'a>>,
+    pub call: Arc<dyn Fn(&Context<'a>, List<Value<'a>>) -> Arc<Value<'a>> + Send + Sync + 'a>,
     pub name: Cow<'a, str>,
 }
 
